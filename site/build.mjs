@@ -24,6 +24,9 @@ const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 const cssVer = createHash('sha256').update(readFileSync(join(TEMPLATE, 'styles.css'))).digest('hex').slice(0, 10);
 const jsVer = createHash('sha256').update(readFileSync(join(TEMPLATE, 'app.js'))).digest('hex').slice(0, 10);
 
+// SEO：站点根 URL（用于 canonical / hreflang / og:url / sitemap）
+const SITE_URL = 'https://sp.aiolaola.com';
+
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // ---- frontmatter 解析 ----
@@ -304,7 +307,7 @@ function loadSkills() {
 
 // ---- 公共布局 ----
 // base: 资源相对前缀（'' / '../' / '../../'）；langHref: 切换语言的目标 URL
-function layout({ lang, base, title, desc, body, langHref, extraHead = '' }) {
+function layout({ lang, base, title, desc, body, langHref, canonical = '/', altZh = '/', altEn = '/en/', extraHead = '' }) {
   const t = T[lang];
   const other = lang === 'zh' ? 'EN' : '中文';
   return `<!DOCTYPE html>
@@ -317,9 +320,18 @@ function layout({ lang, base, title, desc, body, langHref, extraHead = '' }) {
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-L02QK4EVDL');</script>
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(desc)}">
+<link rel="canonical" href="${SITE_URL}${canonical}">
+<link rel="alternate" hreflang="zh-CN" href="${SITE_URL}${altZh}">
+<link rel="alternate" hreflang="en" href="${SITE_URL}${altEn}">
+<link rel="alternate" hreflang="x-default" href="${SITE_URL}${altZh}">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:type" content="website">
+<meta property="og:url" content="${SITE_URL}${canonical}">
+<meta property="og:image" content="${SITE_URL}/assets/app-icon.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="${esc(title)}">
+<meta name="twitter:description" content="${esc(desc)}">
 <link rel="icon" href="/assets/app-icon.png">
 <link rel="stylesheet" href="/styles.css?v=${cssVer}">
 <script>(function(){try{var m=localStorage.getItem('sp-theme');if(m==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
@@ -548,11 +560,13 @@ function build() {
   writeFileSync(join(DIST, 'index.html'), layout({
     lang: 'zh', base: '', title: T.zh.title, desc: T.zh.desc,
     body: renderLanding(skills, 'zh'), langHref: 'en/index.html',
+    canonical: '/', altZh: '/', altEn: '/en/',
   }));
   // 英文站（/en/）
   writeFileSync(join(DIST, 'en', 'index.html'), layout({
     lang: 'en', base: '../', title: T.en.title, desc: T.en.desc,
     body: renderLanding(skills, 'en'), langHref: '../index.html',
+    canonical: '/en/', altZh: '/', altEn: '/en/',
   }));
 
   // 详情(操作文档)页 ×2 语言
@@ -560,12 +574,27 @@ function build() {
     writeFileSync(join(DIST, 'skills', `${s.name}.html`), layout({
       lang: 'zh', base: '../', title: `${s.title} · superpowers-zh`, desc: s.desc,
       body: renderDetail(s, 'zh'), langHref: `../en/skills/${s.name}.html`,
+      canonical: `/skills/${s.name}`, altZh: `/skills/${s.name}`, altEn: `/en/skills/${s.name}`,
     }));
     writeFileSync(join(DIST, 'en', 'skills', `${s.name}.html`), layout({
       lang: 'en', base: '../../', title: `${s.titleEn} · superpowers-zh`, desc: s.descEn || s.desc,
       body: renderDetail(s, 'en'), langHref: `../../skills/${s.name}.html`,
+      canonical: `/en/skills/${s.name}`, altZh: `/skills/${s.name}`, altEn: `/en/skills/${s.name}`,
     }));
   }
+
+  // ---- SEO: robots.txt + sitemap.xml ----
+  writeFileSync(join(DIST, 'robots.txt'),
+    'User-agent: *\nAllow: /\n\nSitemap: ' + SITE_URL + '/sitemap.xml\n');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const urls = ['/', '/en/'];
+  for (const s of skills) { urls.push(`/skills/${s.name}`, `/en/skills/${s.name}`); }
+  const sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    urls.map(u => `  <url><loc>${SITE_URL}${u}</loc><lastmod>${today}</lastmod><changefreq>weekly</changefreq><priority>${u === '/' ? '1.0' : '0.7'}</priority></url>`).join('\n') +
+    '\n</urlset>\n';
+  writeFileSync(join(DIST, 'sitemap.xml'), sitemap);
 
   // 收集所有生成页面里的内联 <script> 内容，算 SHA-256 作为 CSP hash 白名单。
   // 本站脚本由本生成器产出（可信），用 hash 即可严格禁用 'unsafe-inline'/'unsafe-eval'
